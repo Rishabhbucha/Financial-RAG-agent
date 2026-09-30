@@ -1,0 +1,17 @@
+import os
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+api_key = os.getenv("GROQ_API_KEY")
+
+response = requests.get(
+    'https://api.groq.com/openai/v1/models',
+    headers={'Authorization': f'Bearer {api_key}'}
+)
+data = response.json()
+if 'data' in data:
+    for m in data['data']:
+        print(m['id'])
+else:
+    print(data)
