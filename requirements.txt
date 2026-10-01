@@ -15,4 +15,6 @@ tavily-python
 requests
 duckduckgo-search
 matplotlib
+matplotlib
 langchain-huggingface
+yfinance

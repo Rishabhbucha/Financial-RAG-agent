@@ -1,5 +1,7 @@
 import os
 import requests
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
 from langchain_core.tools import tool
@@ -139,58 +141,55 @@ def search_financial_news(query: str) -> str:
         except Exception as e:
             return f"DuckDuckGo search failed: {e}"
 
+import yfinance as yf
+
 @tool
 def plot_stock_history(ticker: str, days: int = 30) -> str:
     """
     Fetches historical stock prices for a given ticker and generates a line chart.
     Use this when the user asks to see a chart, graph, visual trend, or historical performance of a stock.
     """
-    if not FMP_API_KEY:
-        return "Error: FMP API Key is missing."
+    try:
+        stock = yf.Ticker(ticker)
+        # Fetch 1 year of data and grab the tail to ensure we have enough days
+        hist = stock.history(period="1y")
+        if hist.empty:
+            return f"No historical data found for {ticker}."
+            
+        hist = hist.tail(days)
+        dates = hist.index.strftime('%Y-%m-%d').tolist()
+        prices = hist['Close'].tolist()
         
-    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker}?timeseries={days}&apikey={FMP_API_KEY}"
-    response = requests.get(url)
-    
-    if response.status_code == 200:
-        data = response.json()
-        if "historical" in data and data["historical"]:
-            historical = data["historical"]
-            # FMP returns newest first; reverse for chronological plotting
-            historical.reverse()
+        plt.figure(figsize=(10, 5))
+        plt.plot(dates, prices, marker='o', linestyle='-', color='b')
+        plt.title(f"{ticker.upper()} Stock Price - Last {days} Days")
+        plt.xlabel("Date")
+        plt.ylabel("Closing Price ($)")
+        
+        # Show only a few date labels to avoid crowding
+        if len(dates) > 10:
+            step = len(dates) // 10
+            plt.xticks(ticks=range(0, len(dates), step), labels=[dates[i] for i in range(0, len(dates), step)], rotation=45)
+        else:
+            plt.xticks(rotation=45)
             
-            dates = [item["date"] for item in historical]
-            prices = [item["close"] for item in historical]
+        plt.grid(True)
+        plt.tight_layout()
+        
+        os.makedirs("charts", exist_ok=True)
+        filename = os.path.abspath(f"charts/{ticker}_history.png")
+        plt.savefig(filename)
+        plt.close()
+        
+        # Automatically open the chart for the user on Windows!
+        try:
+            os.startfile(filename)
+        except Exception:
+            pass
             
-            plt.figure(figsize=(10, 5))
-            plt.plot(dates, prices, marker='o', linestyle='-', color='b')
-            plt.title(f"{ticker.upper()} Stock Price - Last {days} Days")
-            plt.xlabel("Date")
-            plt.ylabel("Closing Price ($)")
-            
-            # Show only a few date labels to avoid crowding
-            if len(dates) > 10:
-                step = len(dates) // 10
-                plt.xticks(ticks=range(0, len(dates), step), labels=[dates[i] for i in range(0, len(dates), step)], rotation=45)
-            else:
-                plt.xticks(rotation=45)
-                
-            plt.grid(True)
-            plt.tight_layout()
-            
-            os.makedirs("charts", exist_ok=True)
-            filename = os.path.abspath(f"charts/{ticker}_history.png")
-            plt.savefig(filename)
-            plt.close()
-            
-            # Automatically open the chart for the user on Windows!
-            try:
-                os.startfile(filename)
-            except Exception:
-                pass
-                
-            return f"Successfully generated a chart for {ticker}. The chart was saved and opened at '{filename}'. Tell the user to look at the popped-up window!"
-        return f"No historical data found for {ticker}."
-    return f"Failed to fetch historical data. Status code: {response.status_code}"
+        return f"Successfully generated a chart for {ticker}. The chart was saved and opened at '{filename}'. Tell the user to look at the popped-up window!"
+    except Exception as e:
+        return f"Failed to fetch historical data: {str(e)}"
 
 # List of all tools to be bound to the LangGraph agent
 finrag_tools = [
