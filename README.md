@@ -4,8 +4,9 @@ FinRAG is an agentic AI financial research workspace built with Python and LangG
 
 ## Features
 - **Multimodal Document Ingestion:** Upload PDFs, DOCX, and Images. Text is extracted, chunked, and stored locally in a ChromaDB vector database.
-- **Live Financial Data:** Connects to the Financial Modeling Prep (FMP) API to get real-time stock quotes, company profiles, and financial statements.
-- **Dynamic Charting:** Automatically generates and displays historical candlestick/line charts for any stock ticker using Matplotlib.
+- **Daily Market Data:** Fetches dated closing prices and volume from Yahoo Finance using yfinance. Quotes and charts require the latest completed session for NYSE, Nasdaq, NSE, and BSE, accounting for weekends and scheduled holidays. For other exchanges, the tool requires yesterday's bar in the exchange's timezone. If the required data is missing, the tool reports it as unavailable.
+- **Company Fundamentals:** Uses FMP Stable endpoints for company profiles and annual income statements. Statements follow company reporting schedules and show their period end and filing date when available.
+- **Dynamic Charting:** Saves historical closing-price line charts using Matplotlib and attempts to open them on Windows.
 - **Live Web Search:** Built-in DuckDuckGo search ensures the AI isn't limited by its training data cutoff and can fetch real-time news.
 - **Self-Critiquing Agent:** Built using LangGraph, the agent uses a ReAct loop to generate a draft, critique its own accuracy/faithfulness, and automatically rewrite its answer if it doesn't meet quality standards.
 
@@ -32,6 +33,8 @@ FMP_API_KEY=your_financial_modeling_prep_api_key_here
 TAVILY_API_KEY=your_tavily_api_key_here
 ```
 *Note: If you don't have a Tavily API key, leave it blank. The agent will automatically fall back to the free DuckDuckGo search.*
+
+`FMP_API_KEY` is needed for company profiles and income statements. Quotes and charts use Yahoo Finance symbols, such as `AAPL` and `RELIANCE.NS`.
 
 ## Usage
 

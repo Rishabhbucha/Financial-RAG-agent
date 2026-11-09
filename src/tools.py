@@ -10,6 +10,7 @@ from tavily import TavilyClient
 # We will import VectorDBManager here to use it in the tool
 # Note: For a more robust app, you might inject this instead of global instantiation.
 from .vector_db import VectorDBManager
+from .market_data import daily_prices
 
 load_dotenv()
 
@@ -50,25 +51,25 @@ def search_financial_documents(query: str) -> str:
 @tool
 def get_stock_quote(ticker: str) -> str:
     """
-    Retrieve current stock information (price, volume, market cap) for a given ticker symbol (e.g., AAPL).
+    Retrieve the latest verified daily closing price and volume for a Yahoo Finance ticker (e.g., AAPL, RELIANCE.NS).
     """
-    if not FMP_API_KEY:
-        return "Error: FMP API Key is missing."
-        
-    url = f"https://financialmodelingprep.com/api/v3/quote/{ticker}?apikey={FMP_API_KEY}"
-    response = requests.get(url)
-    
-    if response.status_code == 200:
-        data = response.json()
-        if data:
-            quote = data[0]
-            return (f"Ticker: {quote['symbol']}\n"
-                    f"Price: ${quote['price']}\n"
-                    f"Change: {quote['changesPercentage']}%\n"
-                    f"Market Cap: {quote['marketCap']}\n"
-                    f"Volume: {quote['volume']}")
-        return f"No quote data found for {ticker}."
-    return f"Failed to fetch stock quote. Status code: {response.status_code}"
+    ticker = ticker.strip().upper()
+    try:
+        history, currency = daily_prices(ticker, "1mo")
+    except Exception as e:
+        return f"Daily market data unavailable for {ticker}: {e}"
+
+    latest = history.iloc[-1]
+    closes = history["Close"]
+    change = f"{closes.pct_change().iloc[-1]:+.2%}" if len(closes) > 1 else "unavailable"
+    return (
+        f"Ticker: {ticker}\n"
+        f"Source: Yahoo Finance\n"
+        f"Trading session: {history.index[-1].date()}\n"
+        f"Daily close: {latest['Close']:,.4f} {currency}\n"
+        f"Change from previous available close: {change}\n"
+        f"Volume: {latest['Volume']:,.0f}"
+    )
 
 @tool
 def get_company_profile(ticker: str) -> str:
@@ -78,8 +79,11 @@ def get_company_profile(ticker: str) -> str:
     if not FMP_API_KEY:
         return "Error: FMP API Key is missing."
         
-    url = f"https://financialmodelingprep.com/api/v3/profile/{ticker}?apikey={FMP_API_KEY}"
-    response = requests.get(url)
+    response = requests.get(
+        "https://financialmodelingprep.com/stable/profile",
+        params={"symbol": ticker, "apikey": FMP_API_KEY},
+        timeout=10,
+    )
     
     if response.status_code == 200:
         data = response.json()
@@ -102,18 +106,24 @@ def get_financial_statements(ticker: str) -> str:
     if not FMP_API_KEY:
         return "Error: FMP API Key is missing."
         
-    url = f"https://financialmodelingprep.com/api/v3/income-statement/{ticker}?limit=1&apikey={FMP_API_KEY}"
-    response = requests.get(url)
+    response = requests.get(
+        "https://financialmodelingprep.com/stable/income-statement",
+        params={"symbol": ticker, "period": "annual", "limit": 1, "apikey": FMP_API_KEY},
+        timeout=10,
+    )
     
     if response.status_code == 200:
         data = response.json()
         if data:
             stmt = data[0]
-            return (f"Year: {stmt['calendarYear']}\n"
-                    f"Revenue: ${stmt['revenue']}\n"
-                    f"Gross Profit: ${stmt['grossProfit']}\n"
-                    f"Operating Income: ${stmt['operatingIncome']}\n"
-                    f"Net Income: ${stmt['netIncome']}")
+            return (f"Source: Financial Modeling Prep\n"
+                    f"Annual period end: {stmt.get('date', 'unavailable')}\n"
+                    f"Filed on: {stmt.get('filingDate') or 'unavailable'}\n"
+                    f"Reporting currency: {stmt.get('reportedCurrency') or 'unavailable'}\n"
+                    f"Revenue: {stmt['revenue']}\n"
+                    f"Gross Profit: {stmt['grossProfit']}\n"
+                    f"Operating Income: {stmt['operatingIncome']}\n"
+                    f"Net Income: {stmt['netIncome']}")
         return f"No financial statements found for {ticker}."
     return "Failed to fetch financial statements."
 
@@ -141,8 +151,6 @@ def search_financial_news(query: str) -> str:
         except Exception as e:
             return f"DuckDuckGo search failed: {e}"
 
-import yfinance as yf
-
 @tool
 def plot_stock_history(ticker: str, days: int = 30) -> str:
     """
@@ -150,11 +158,10 @@ def plot_stock_history(ticker: str, days: int = 30) -> str:
     Use this when the user asks to see a chart, graph, visual trend, or historical performance of a stock.
     """
     try:
-        stock = yf.Ticker(ticker)
-        # Fetch 1 year of data and grab the tail to ensure we have enough days
-        hist = stock.history(period="1y")
-        if hist.empty:
-            return f"No historical data found for {ticker}."
+        ticker = ticker.strip().upper()
+        if days < 1:
+            return "The chart requires at least one trading session."
+        hist, currency = daily_prices(ticker, "1y")
             
         hist = hist.tail(days)
         dates = hist.index.strftime('%Y-%m-%d').tolist()
@@ -162,9 +169,9 @@ def plot_stock_history(ticker: str, days: int = 30) -> str:
         
         plt.figure(figsize=(10, 5))
         plt.plot(dates, prices, marker='o', linestyle='-', color='b')
-        plt.title(f"{ticker.upper()} Stock Price - Last {days} Days")
+        plt.title(f"{ticker} Closing Price - {len(hist)} Sessions Through {dates[-1]}")
         plt.xlabel("Date")
-        plt.ylabel("Closing Price ($)")
+        plt.ylabel(f"Closing Price ({currency})")
         
         # Show only a few date labels to avoid crowding
         if len(dates) > 10:
@@ -182,12 +189,14 @@ def plot_stock_history(ticker: str, days: int = 30) -> str:
         plt.close()
         
         # Automatically open the chart for the user on Windows!
+        status = ""
         try:
             os.startfile(filename)
+            status = " Opened the saved chart."
         except Exception:
             pass
             
-        return f"Successfully generated a chart for {ticker}. The chart was saved and opened at '{filename}'. Tell the user to look at the popped-up window!"
+        return f"Yahoo Finance chart for {ticker} through {dates[-1]} saved at '{filename}'.{status}"
     except Exception as e:
         return f"Failed to fetch historical data: {str(e)}"
 

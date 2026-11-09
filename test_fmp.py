@@ -4,9 +4,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 key = os.getenv("FMP_API_KEY")
-print(f"Key used: {key}")
+if not key:
+    raise SystemExit("FMP_API_KEY is missing.")
 
-url = f"https://financialmodelingprep.com/api/v3/historical-price-full/AAPL?timeseries=30&apikey={key}"
-r = requests.get(url)
+r = requests.get(
+    "https://financialmodelingprep.com/stable/income-statement",
+    params={"symbol": "AAPL", "period": "annual", "limit": 1, "apikey": key},
+    timeout=10,
+)
 print(r.status_code)
 print(r.text[:200])
